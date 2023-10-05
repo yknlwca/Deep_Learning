@@ -1,0 +1,702 @@
+# 시각화 분석
+```python
+import warnings
+warnings.filterwarnings("ignore")
+import warnings
+warnings.filterwarnings("ignore")
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+```
+* 한글 깨짐 방지
+```python
+import matplotlib
+
+from matplotlib import font_manager, rc
+
+import platform
+
+if platform.system()=="Windows":
+
+    font_name=font_manager.FontProperties(fname="c:/Windows/Fonts/malgun.ttf").get_name()
+
+    rc('font', family=font_name)
+
+matplotlib.rcParams['axes.unicode_minus']=False
+```
+```
+Season: 경기 시즌
+DateTime: 경기 일시 및 시간
+HomeTeam: 홈 팀 이름
+AwayTeam: 원정 팀 이름
+FTHG: 홈 팀의 전체 골 수 (Full Time Home Team Goals)
+FTAG: 원정 팀의 전체 골 수 (Full Time Away Team Goals)
+FTR: 경기 결과 (Full Time Result / A: 원정 팀 승, H: 홈 팀 승, D: 무승부)
+HTHG: 홈 팀의 하프타임 골 수 (Half Time Home Team Goals)
+HTAG: 원정 팀의 하프타임 골 수 (Half Time Away Team Goals)
+HTR: 하프타임 결과 (Half-Time Result / A: 원정 팀 승, H: 홈 팀 승, D: 무승부)
+Referee: 경기 심판 이름
+HS: 홈 팀의 슈팅 수 (Home Team Shot)
+AS: 원정 팀의 슈팅 수 (Away Team Shot)
+HST: 홈 팀의 유효 슈팅 수 (Home Team Shot on Target)
+AST: 원정 팀의 유효 슈팅 수 (Away Team Shot on Target)
+HC: 홈 팀의 코너 킥 수 (Home Team Corner Kick)
+AC: 원정 팀의 코너 킥 수 (Away Team Corner Kick)
+HF: 홈 팀의 파울 수 (Home Team Fouls)
+AF: 원정 팀의 파울 수 (Away Team Fouls)
+HY: 홈 팀의 옐로 카드 수 (Home Team Yellow Cards)
+AY: 원정 팀의 옐로 카드 수 (Away Team Yellow Cards)
+HR: 홈 팀의 레드 카드 수 (Home Team Red Cards)
+AR: 원정 팀의 레드 카드 수 (Away Team Red Cards)
+```
+# 데이터 전처리
+```python
+file = "C:/Users/user/Desktop/PL/Epl.xlsx"
+data_epl=pd.read_excel(file)
+data_epl
+```
+```python
+data_epl.info()
+data_epl.describe(include="all")
+```
+```python
+print(data_epl[data_epl['HTHG'].isnull()]['Season'].value_counts())
+print(data_epl[data_epl['HTAG'].isnull()]['Season'].value_counts())
+print(data_epl[data_epl['HTR'].isnull()]['Season'].value_counts())
+print(data_epl['Season'].value_counts())
+```
+```python
+data_epl[['HTHG','HTAG']] = data_epl[['HTHG','HTAG']].fillna(value=0).astype(int)
+data_epl['HTR'] = data_epl['HTR'].fillna(value='D')
+data_epl
+```
+* 구분 편하기 위해 이긴 팀과 홈/어웨이 승리 추가
+```python
+data_epl.loc[data_epl['FTR'] == 'H', 'Winner'] = data_epl['HomeTeam']
+data_epl.loc[data_epl['FTR'] == 'A', 'Winner'] = data_epl['AwayTeam']
+data_epl.loc[data_epl['FTR'] == 'D', 'Winner'] = 'Draw'
+data_epl.loc[data_epl['FTR'] == 'H', 'Winning'] = "HomeTeam"
+data_epl.loc[data_epl['FTR'] == 'A', 'Winning'] = "AwayTeam"
+data_epl.loc[data_epl['FTR'] == 'D', 'Winning'] = 'Draw'
+data_epl[['HomeTeam', 'AwayTeam', 'FTR',"Winning", 'Winner']]
+# 이긴 팀과 홈/어웨이가 이겼는지 추가 
+data_epl
+```
+* 시즌 당 승무패/승점/순위을 확인하기 위해 새로운 데이터 추가
+```python
+# 전체 홈 게임의 승 무 패
+hp = data_epl.groupby(['Season','HomeTeam'])['FTR'].count().rename("HP") # 홈경기
+hw = data_epl[data_epl['FTR'] =='H'].groupby(['Season','HomeTeam'])['FTR'].count().rename("HW") # 홈승
+hl = data_epl[data_epl['FTR'] =='A'].groupby(['Season','HomeTeam'])['FTR'].count().rename("HL") # 홈패
+hd = data_epl[data_epl['FTR'] =='D'].groupby(['Season','HomeTeam'])['FTR'].count().rename("HD") # 홈무
+home_games=pd.concat([hp,hw,hl,hd],axis=1).reset_index()
+home_games.fillna(0,inplace=True)
+home_games[['HP','HL','HD','HW']]=home_games[['HP','HL','HD','HW']].astype(int)
+
+# 시즌당 홈 팀의 총 득점 과 실점(풀타임 하프타임 구분)
+home_score=data_epl.groupby(['Season','HomeTeam'])['FTAG','FTHG','HTAG','HTHG'].sum().astype(int).reset_index()
+home_score.rename(columns={'FTHG':'HG For','FTAG':'HG Against','HTAG':'HG For(Half Time)','HTHG':'HG Against(Half Time)'},inplace=True)
+
+home_df=pd.merge(left=home_games,right=home_score,on=['Season','HomeTeam'],how='left')
+home_df
+# 전체 원정 게임의 승 무 패
+ap = data_epl.groupby(['Season','AwayTeam'])['FTR'].count().rename("AP") #원정경기
+aw = data_epl[data_epl['FTR'] =='A'].groupby(['Season','AwayTeam'])['FTR'].count().rename("AW") #원정승
+al = data_epl[data_epl['FTR'] =='H'].groupby(['Season','AwayTeam'])['FTR'].count().rename("AL") #원정패
+ad = data_epl[data_epl['FTR'] =='D'].groupby(['Season','AwayTeam'])['FTR'].count().rename("AD") #원정무
+away_games=pd.concat([ap,aw,al,ad],axis=1).reset_index()
+away_games.fillna(0,inplace=True)   ##NaN comes where theere are 0 games as groupby misses that entry
+away_games[['AP','AL','AD','AW']]=away_games[['AP','AL','AD','AW']].astype(int)
+
+#시즌당 원정 팀의 총 득점 과 실점(풀타임 하프타임 구분)
+away_score=data_epl.groupby(['Season','AwayTeam'])['FTAG','FTHG','HTAG','HTHG'].sum().astype(int).reset_index()
+away_score.rename(columns={'FTHG':'AG Against','FTAG':'AG For','HTAG':'AG For(Half Time)','HTHG':'AG Against(Half Time)'},inplace=True)
+
+away_df=pd.merge(left=away_games,right=away_score,on=['Season','AwayTeam'],how='left')
+away_df
+#홈 어웨이 최종 테이블
+epl_table = pd.merge(left=home_df,right=away_df,left_on=['Season','HomeTeam'],right_on=['Season','AwayTeam']).drop(['AwayTeam'],axis=1)
+epl_table.rename(columns={'HomeTeam':'Team'},inplace=True)
+epl_table['Total Played'] = epl_table['HP'] + epl_table['AP']
+epl_table['Total Wins'] = epl_table['HW'] + epl_table['AW']
+epl_table['Total Loss'] = epl_table['HL'] + epl_table['AL']
+epl_table['Total Draw'] = epl_table['HD'] + epl_table['AD']
+epl_table['GF'] = epl_table['HG For'] + epl_table['AG For']
+epl_table['GA'] = epl_table['HG Against'] + epl_table['AG Against']
+epl_table['GD'] = epl_table['GF'] - epl_table['GA']
+epl_table['Total_Points'] = 3*epl_table['Total Wins'] + epl_table['Total Draw']  #이기면 승점 3점 비기면 승점 1점
+
+#팀 순위 데이터 생성
+epl_table['Rank'] = epl_table.groupby('Season')['Total_Points'].rank(method='min',ascending=False)
+epl_table['fin'] = epl_table.groupby(['Season','Rank'])['GD'].rank(method='first',ascending=False)  #승점이 같으면 골득실로 구분
+epl_table['Rank'] = np.where((epl_table['fin'] > 1),(epl_table['Rank']+epl_table['fin'] - 1),epl_table['Rank'])
+epl_table.drop('fin',axis=1,inplace=True)
+epl_table = epl_table.sort_values(by=['Season', 'Rank'])
+epl_table['Rank'] = epl_table['Rank'].astype(int)
+epl_table.reset_index(drop=True, inplace=True)
+epl_table
+```
+# 시즌 당 경기 수 / 골 수
+```python
+plt.subplot(211)
+data_epl.groupby('Season')['Season'].count().plot(kind='bar',fontsize=13,figsize=(16,7),yticks=np.arange(0,501,50))
+
+plt.title("시즌 별 경기 수")
+plt.xlabel("시즌")
+plt.ylabel("경기")
+plt.xticks(rotation=60)
+plt.show()
+# 1993-94/ 1994-95 : 462경기 # 2021-22 : 309경기 32R 까지만 업데이트
+plt.subplot(212)
+data_epl.groupby('Season')['HomeTeam'].nunique().plot(kind='bar',colormap='magma',fontsize=13,figsize=(16,7),yticks=np.arange(20, 26,2))
+plt.ylabel('팀의 수')
+plt.xlabel("시즌")
+plt.title("시즌 별 참가 팀 수")
+plt.xticks(rotation=60)
+plt.subplots_adjust(bottom=0.1)
+plt.show()
+#94-95까지 팀이 22팀. 그 이후로 20팀
+# 경기 수 역시 94-95까지 더 많음
+```
+```python
+def calculate_total_matches(teams, matches_per_team):
+    total_matches = (teams * matches_per_team) // 2
+    return total_matches
+teams = 22
+matches_per_team = 42  
+total_matches = calculate_total_matches(teams, matches_per_team)
+print("시즌 당 경기수 수:", total_matches)
+```
+```python
+def calculate_total_matches(teams, matches_per_team):
+    total_matches = (teams * matches_per_team) // 2
+    return total_matches
+teams = 20
+matches_per_team = 38
+total_matches = calculate_total_matches(teams, matches_per_team)
+print("시즌 당 경기수 수:", total_matches)
+```
+```python
+plt.subplot(211)
+data_epl['Total_Match_Goals'] = data_epl['FTHG'] + data_epl['FTAG']
+data_epl.groupby('Season')['Total_Match_Goals'].sum().plot(kind='bar',fontsize=13,figsize=(16,7),yticks=np.arange(0,1201,80)) 
+
+plt.title("시즌 별 골 수")
+plt.xlabel("시즌")
+plt.ylabel("골 수")
+plt.xticks(rotation=60)
+plt.show()
+# 시즌 당 나온 골의 수
+
+plt.subplot(212)
+goal_per_game = round(data_epl.groupby('Season')['Total_Match_Goals'].sum()/data_epl.groupby('Season')['Season'].count(),2)
+goal_per_game.plot(kind='bar',width=0.5,figsize=(16,7))
+
+plt.grid(axis='y')
+plt.ylim(2.4,2.9)  ##min value = 2.45 as seen in data [gpm.min()]
+plt.ylabel('골')
+plt.title("경기 당 골 수")
+plt.xticks(rotation=60)
+plt.show()
+# 시즌 별 한경기 당 골 수
+```
+* 그래프 표현
+```python
+plt.subplot(211)
+data_epl['Total_Match_Goals'] = data_epl['FTHG'] + data_epl['FTAG']
+data_epl.groupby('Season')['Total_Match_Goals'].sum().plot(kind='bar',fontsize=13,figsize=(16,7),yticks=np.arange(0,1201,80)) 
+
+plt.title("시즌 별 골 수")
+plt.xlabel("시즌")
+plt.ylabel("골 수")
+plt.xticks(rotation=60)
+plt.show()
+# 시즌 당 나온 골의 수
+
+plt.subplot(212)
+goal_per_game = round(data_epl.groupby('Season')['Total_Match_Goals'].sum()/data_epl.groupby('Season')['Season'].count(),2)
+goal_per_game.plot(kind='bar',width=0.5,figsize=(16,7))
+
+plt.grid(axis='y')
+plt.ylim(2.4,2.9)  ##min value = 2.45 as seen in data [gpm.min()]
+plt.ylabel('골')
+plt.title("경기 당 골 수")
+plt.xticks(rotation=60)
+plt.show()
+# 시즌 별 한경기 당 골 수
+```
+```python
+data_epl.groupby('Season')[['FTHG','FTAG']].sum().plot(kind='bar',fontsize=13,figsize=(24,8),yticks=np.arange(0,721,80),colormap='copper')
+plt.grid(axis='y')
+plt.ylabel('Goals')
+plt.legend(['홈팀 골','원정팀 골'])
+plt.title("홈팀의 골 vs 원정팀의 골",fontsize=20)
+plt.xticks(rotation=60)
+plt.show()
+# 시즌 별 홈/어웨 골 수 비교
+# 홈 팀의 골 수가 많다.
+```
+# 승무패/승률
+```python
+home_wins = data_epl[data_epl["FTR"] =="H"]
+away_wins = data_epl[data_epl["FTR"] == "A"]
+draws = data_epl[data_epl["FTR"] =="D"]
+print("역대 홈 팀 승리 횟수 :",len(home_wins))
+print("역대 원정 팀 승리 횟수 :",len(away_wins))
+print("역대 무승부 횟수 :",len(draws))
+print("역대 홈 팀의 승률 :",len(home_wins)/len(data_epl)*100)
+print("역대 원정 팀의 승률 :",len(away_wins)/len(data_epl)*100)
+print("역대 무승부 확률 :",len(draws)/len(data_epl)*100)
+```
+```python
+per_season = data_epl.groupby(['Season','FTR'])['FTR'].count().reset_index(name='count')
+new_df = per_season.pivot_table(index = 'Season', columns = 'FTR' , values = 'count').reset_index()
+new_df
+```
+```python
+results = pd.DataFrame()
+results['season'] = new_df['Season']
+results['home wins'] = new_df['H']
+results['draws'] = new_df['D']
+results['away wins'] = new_df['A']
+results.loc[len(results)] = ['2022-23',183,87,110]
+results['Home wins %'] = ((results['home wins']/380)*100).round(2)
+results['Away wins %'] = ((results['away wins']/380)*100).round(2)
+results["Draws %"] = ((results["draws"]/380)*100).round(2) # 소수점 2자리
+results
+```
+* 그래프 표현
+```python
+results.plot.bar(x='season',y=['Home wins %','Away wins %',"Draws %"],figsize=(20,10),
+                 color = {'Home wins %':'red','Away wins %':'blue',"Draws %":"green"})
+plt.show()
+#홈/어웨이 승무패 확률
+#홈 팀의 승률이 압 도 적으로 높다. 20-21 시즌 만 원정의 승률이 더 높다.
+```
+* 원 그래프
+```python
+total_home_wins = len(home_wins)
+total_away_wins = len(away_wins)
+total_draws = len(draws)
+labels = ['홈팀 승리', '원정팀 승리', '무승부']
+sizes = [total_home_wins, total_draws, total_away_wins]
+explode = (0.1,0,0)
+colors = ['#CC6600','#66b3ff','#99ff99']
+fig1, ax1 = plt.subplots()
+ax1.pie(sizes,explode=explode,colors=colors, labels=labels, autopct='%1.1f%%', shadow=True, startangle=90)
+ax1.axis('equal') 
+
+plt.title('역대 결과')
+plt.show()
+# 홈 팀의 압도적 승률
+ ```
+ ```python
+ plt.subplot(211)
+home_win=100*round((data_epl.loc[data_epl['FTR']=='H'].groupby('HomeTeam')['FTR'].count()/data_epl.groupby('HomeTeam')['FTR'].count()),3)
+home_win.sort_values(ascending=False).plot(kind='barh',figsize=(10,15),xticks=np.arange(0,101,10),color='teal')
+plt.grid(axis='x')
+plt.xlabel('Percentage')
+plt.legend(['%'])
+plt.title("홈에서의 승률 ",fontsize=20)
+plt.show()
+# 각 팀의 홈에서의 승률
+plt.subplot(212)
+away_win=100*round((data_epl.loc[data_epl['FTR']=='A'].groupby('AwayTeam')['FTR'].count()/data_epl.groupby('AwayTeam')['FTR'].count()),3)
+away_win.sort_values(ascending=False).plot(kind='barh',figsize=(10,15),xticks=np.arange(0,101,10),color='teal')
+plt.grid(axis='x')
+plt.xlabel('Percentage')
+plt.legend(['%'])
+plt.title("원정에서의 승률",fontsize=20)
+plt.show()
+# 각 팀의 원정에서의 승률
+# 홈보단 원정이 승률이 낮은 것이 일반적.
+ ```
+ 원정보단 홈이 여러 지표에 의거하여 승리에 유리하다
+ # 역전승
+ ```python
+ home_come_back=data_epl[(data_epl["HTR"] == "A") & (data_epl["FTR"] == "H")]
+home_come_back
+len(home_come_back)
+away_come_back=data_epl[(data_epl["FTR"] == "A") & (data_epl["HTR"] == "H")]
+away_come_back
+len(away_come_back)
+print("홈 팀 역전승 횟수 :",len(home_come_back))
+print("원정 팀 역전승 횟수 :",len(away_come_back))
+# 역전승은 홈/어웨이가 크게 상관 하지 않는 듯?
+ ```
+ ```python
+ data_epl['Comeback']=np.where((data_epl['FTR']!=data_epl['HTR'])&(data_epl['FTR']!='D') & (data_epl['HTR']!='D'),1,0)
+
+data_epl.groupby('Season')['Comeback'].sum().plot(kind='bar',figsize=(24,8),color='green',yticks=np.arange(0,23,2))
+plt.grid(axis='y')
+plt.title("시즌 별 역전 승",fontsize=20)
+plt.ylabel('역전')
+plt.xticks(rotation=60)
+plt.show()
+# 380경기라는 것을 생각하면 역전 승은 쉽게 나오는 경기가 아니다.
+ ```
+ # 팀 별 정리
+ ```python
+ home_wins = data_epl[data_epl["FTR"] == "H"]["HomeTeam"].value_counts()
+away_wins = data_epl[data_epl["FTR"] == "A"]["AwayTeam"].value_counts()
+total_wins = home_wins.add(away_wins, fill_value=0)
+top_10_teams = total_wins.sort_values(ascending=False).head(10)
+top_10_teams
+ ```
+ ```python
+ total_goals= data_epl.groupby('HomeTeam')['FTHG'].sum() + data_epl.groupby('AwayTeam')['FTAG'].sum()
+total_goals.sort_values(ascending=False).plot(kind='barh',figsize=(15,15),xticks=np.arange(0,1901,100),color='blue')
+plt.grid(axis='x')
+plt.xlabel("골 수")
+plt.title("역대 팀별 골 수",fontsize=20)
+plt.show()
+```
+```python
+home_goals = data_epl.groupby('HomeTeam')['FTHG'].sum().sort_values(ascending=False).plot(kind='barh',figsize=(15,15),xticks=np.arange(0,1051,50),color='blue')
+plt.grid(axis='x')
+plt.xlabel("골 수")
+plt.title("팀별 홈에서의 골 수",fontsize=20)
+plt.legend(['점수'])
+plt.show()
+```
+```python
+total_goals= data_epl.groupby('HomeTeam')['FTHG'].sum() + data_epl.groupby('AwayTeam')['FTAG'].sum()
+home_goals = data_epl.groupby('HomeTeam')['FTHG'].sum().sort_values(ascending=False)
+fig, ax = plt.subplots(figsize=(10, 15))
+
+total_goals.sort_values(ascending=False).plot(kind='barh', ax=ax, position=0, width=0.4, color='blue', label='역대 골 수')
+home_goals.sort_values(ascending=False).plot(kind='barh', ax=ax, position=1, width=0.4, color='red', label='홈에서의 골 수')
+
+plt.xlabel("팀")
+plt.ylabel("골 수")
+plt.title("팀별 역대 골 수 및 홈에서의 골 수", fontsize=16)
+plt.xticks(rotation=45)
+plt.legend()
+plt.grid(axis='y')
+plt.show()
+# 모든 팀이 홈에서의 골이 50% 이상으로 보인다 
+# 홈 / 원정 경기당 골 수를 비교해봐야겠다.
+```
+```python
+goals_home_game= round(data_epl.groupby('HomeTeam')['FTHG'].sum()/data_epl.groupby('HomeTeam')['HomeTeam'].count(),2)
+goals_home_game.sort_values(ascending=False).plot(kind='barh',figsize=(10,15),xticks=np.arange(0,2.5,0.2),color='blue')
+plt.grid(axis='x')
+plt.xlabel("골 수")
+plt.title("홈팀 골/ 경기",fontsize=20)
+plt.legend(["경기당 골 수"])
+plt.show()
+```
+```python
+goals_away_game= round(data_epl.groupby('AwayTeam')['FTAG'].sum()/data_epl.groupby('AwayTeam')['AwayTeam'].count(),2)
+goals_away_game.sort_values(ascending=False).plot(kind='barh',figsize=(10,15),xticks=np.arange(0,2.5,0.2),color='red')
+plt.grid(axis='x')
+plt.xlabel("골 수")
+plt.title("원정 팀 / 골 수",fontsize=20)
+plt.legend(["경기당 골 수"])
+plt.show()
+```
+```python
+goals_home_game= round(data_epl.groupby('HomeTeam')['FTHG'].sum()/data_epl.groupby('HomeTeam')['HomeTeam'].count(),2)
+goals_away_game= round(data_epl.groupby('AwayTeam')['FTAG'].sum()/data_epl.groupby('AwayTeam')['AwayTeam'].count(),2)
+fig, ax = plt.subplots(figsize=(10,15))
+
+goals_home_game.sort_values(ascending=False).plot(kind='barh', ax=ax, position=0, width=0.4, color='blue', label='홈 경기당 골 수')
+goals_away_game.sort_values(ascending=False).plot(kind='barh', ax=ax, position=1, width=0.4, color='red', label='원정 경기당 골 수')
+
+plt.xlabel("팀")
+plt.ylabel("골 수")
+plt.title("홈/원정 경기당 골 수 비교", fontsize=16)
+plt.xticks(rotation=45)
+plt.legend()
+plt.grid(axis='y')
+plt.show()
+# 모든 팀이 홈 경기당 골 수가 골 수가 많다
+# 홈이 확실히 유리하다.
+```
+# 신조어 "리즈 시절"
+```python
+leeds_data = data_epl[(data_epl['HomeTeam'] == 'Leeds') | (data_epl['AwayTeam'] == 'Leeds')]
+
+leeds_data['Result'] = leeds_data.apply(lambda row: 'W' if row["Winner"] == 'Leeds'
+                                       else 'D' if row['FTR'] == 'D'
+                                       else 'L', axis=1)
+
+season_wins = leeds_data.groupby('Season')['Result'].apply(lambda x: (x == 'W').sum())
+season_draws = leeds_data.groupby('Season')['Result'].apply(lambda x: (x == 'D').sum())
+season_losses = leeds_data.groupby('Season')['Result'].apply(lambda x: (x == 'L').sum())
+total_matches = season_wins + season_draws + season_losses
+win_percentage = (season_wins / total_matches) * 100
+
+all_seasons = data_epl['Season'].unique()
+missing_seasons = [season for season in all_seasons if season not in win_percentage.index]
+
+for season in missing_seasons:
+    win_percentage[season] = 0
+
+win_percentage = win_percentage.sort_index()
+
+plt.figure(figsize=(12, 6))
+plt.plot(win_percentage.index, win_percentage.values, marker='o', linestyle='-', color='b')
+plt.title('Leeds 시즌 별 승률')
+plt.xlabel('시즌')
+plt.ylabel('승률 (%)')
+plt.grid(True)
+plt.ylim(0, 100)
+plt.xticks(rotation=45)
+
+plt.show()
+# 리즈 의 시즌 별 승률
+```
+```python
+search_season = input("시즌 입력 (예: 2016/2017): ")
+season_ranking = epl_table[epl_table['Season'] == search_season]
+season_ranking= season_ranking[["Season","Team","Total Played","Total Wins","Total Loss","Total Draw","GD","Total_Points","Rank"]]
+season_ranking
+# 승점이 0점이 되기 바로 직전인  "2003-04" 시즌에서의 순위가 19위
+# 강등되었다는 것을 볼 수 있다.
+# 2004-05 시즌 부터의 강등시기가 Leeds의 암흑기
+# 그래서 사람들이 예전의 영광의 시기를 말할때 리즈 시절이라는 신조어가 생겨 났다.
+```
+# 팀에 대한 데이터
+```python
+data_epl.groupby(['HomeTeam'])['Season'].nunique().plot(kind='bar',figsize=(20,10),yticks=np.arange(0,31,1),color='black')
+plt.ylabel("진행한 시즌 수")
+plt.xlabel(None)
+plt.xticks(rotation=60)
+plt.title("팀별 시즌 수",fontsize=20)
+plt.grid()
+# 1993-94 시즌 시작 2021-22시즌 총 29시즌
+# 29시즌 모두 다 진행한 팀
+# 강등을 한 번도 당하지 않은 팀
+# Arsenal / Chelsea / Everton / Liverpool / Man United / Tottenham 총 6팀
+```
+```python
+season_goals = data_epl.groupby(['Season', 'HomeTeam'])[['FTHG', 'FTAG']].sum().reset_index()
+season_goals['TotalGoals'] = season_goals['FTHG'] + season_goals['FTAG']
+
+plt.figure(figsize=(12, 6))
+for team in season_goals['HomeTeam'].unique():
+    team_data = season_goals[season_goals['HomeTeam'] == team]
+    plt.plot(team_data['Season'], team_data['TotalGoals'], label=team)
+
+plt.title('시즌 별 팀의 득점')
+plt.xlabel('시즌')
+plt.ylabel('득점')
+plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.grid(True)
+plt.xticks(rotation=60)
+plt.show()
+# 역대 모든 팀에 대한 시즌 별 득점 데이터
+```
+```python
+selected_team = input("팀 이름")
+
+team_data = data_epl[(data_epl['HomeTeam'] == selected_team) | (data_epl['AwayTeam'] == selected_team)]
+
+season_stats = team_data.groupby(['Season']).agg({'FTHG': 'sum', 'FTAG': 'sum', 'FTR': lambda x: (x == 'H').sum()}).reset_index()
+season_stats['TotalGoals'] = season_stats['FTHG'] + season_stats['FTAG']
+season_stats['WinPercentage'] = (season_stats['FTR'] / 38) * 100  
+
+
+plt.figure(figsize=(12, 6))
+plt.plot(season_stats['Season'], season_stats['TotalGoals'], label='득점', marker='o', linestyle='-')
+plt.plot(season_stats['Season'], season_stats['FTHG'], label='실점', marker='o', linestyle='-')
+plt.plot(season_stats['Season'], season_stats['WinPercentage'], label='승률(%)', marker='o', linestyle='-')
+plt.title(f'{selected_team}의 시즌 별 득점, 실점, 승률')
+plt.xlabel('시즌')
+plt.ylabel('득점, 실점, 승률')
+plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.grid(True)
+plt.xticks(rotation=60)
+plt.show()
+# 특정 팀의 시즌 별 득점,실점,승률 추이를 확인
+```
+# 시즌 별 베스트/워스트 뽑기
+```python
+fig,ax=plt.subplots(2,2,figsize=(50,50),constrained_layout=True)
+
+# 우승 최다 팀 과 최저 팀 (최소 1번 이상)
+epl_table[epl_table['Rank']==1].groupby('Team')['Season'].count().plot(kind='bar',ax=ax[0][0])
+ax[0][0].set_title('우승 횟수',fontsize=60)
+ax[0][0].grid()
+
+
+# 시즌 별 최다 승 최저 승
+epl_table.groupby('Season')['Total Wins'].agg(['max','min']).plot(kind='bar',ax=ax[0][1])
+ax[0][1].set_title('최다승 / 최저승 ',fontsize=60)
+ax[0][1].grid()
+
+
+# 최다 최저 승점
+epl_table.groupby('Season')['Total_Points'].agg(['max','min']).plot(kind='bar',ax=ax[1][0])
+ax[1][0].set_title('최다 승점 / 최저 승점 ',fontsize=60)
+ax[1][0].grid()
+
+# 시즌 별 최다패 최저 패
+epl_table.groupby('Season')['Total Loss'].agg(['max','min']).plot(kind='bar',ax=ax[1][1])
+ax[1][1].set_title('최다 패배 / 최저 패배 ',fontsize=60)
+ax[1][1].grid()
+
+fig.tight_layout()
+fig.show()
+```
+```python
+fig, ax = plt.subplots(1, 2, figsize=(50, 50), constrained_layout=True)  
+
+# 시즌 별 최다 골 최저 골
+epl_table.groupby('Season')['GF'].agg(['max', 'min']).plot(kind='bar', ax=ax[0])
+ax[0].set_title('최다 골 / 최저 골', fontsize=60)
+ax[0].grid()
+
+# 최다 점수 차 최저 점수 차
+epl_table.groupby('Season')['GD'].agg(['max', 'min']).plot(kind='bar', ax=ax[1])
+ax[1].set_title('최다 점수 차 / 최저 점수 차', fontsize=60)
+ax[1].grid()
+
+fig.tight_layout()
+plt.show()
+```
+```python
+fig, ax = plt.subplots(1, 2, figsize=(50, 50), constrained_layout=True)
+
+# 한 시즌 최다 실점 / 최저 실점
+epl_table.groupby('Season')['GA'].agg(['max', 'min']).plot(kind='bar', ax=ax[0])
+ax[0].set_title('최다/최소 실점', fontsize=60)
+ax[0].grid()
+
+# 상위 두 팀 간의 최다 승점 차 최소 승점 차
+#1위
+top = epl_table[epl_table['Rank'] == 1]
+top.set_index('Season', drop=True, inplace=True)
+top = top.reset_index()
+#2위
+rup = epl_table[epl_table['Rank'] == 2]
+rup.set_index('Season', drop=True, inplace=True)
+rup = rup.reset_index()
+
+(top['Total_Points'] - rup['Total_Points']).plot(kind='bar', ax=ax[1], yticks=np.arange(0, 21, 1))
+ax[1].set_title('1/2위팀간의 승점', fontsize=60)
+ax[1].grid()
+
+fig.tight_layout()
+plt.show()
+```
+```python
+# 시즌 별 각 팀의 승리 수 와 패배 수 확인 하기
+import plotly.express as px
+fig = px.scatter(epl_table, x="Season", y="Total Loss", color="Team",hover_name="Team",size="Total Wins",template='plotly',
+                color_discrete_sequence=px.colors.cyclical.IceFire,
+                 #labels ={'GF': 'Goals Scored'},
+                 title="시즌 별 승리 수 와 패배 수 확인")
+
+fig.update_xaxes(
+    showgrid=True,
+    ticks="outside",
+    tickson="boundaries",
+    ticklen=20,
+    type='category')
+fig.show()
+```
+* 한 시즌 최다 승리 2017-18맨시티 32승
+* 한 시즌 최저 승리 2007-08더비카운티 1승
+* 한 시즌 최다 패배 1994-95입스위치, 2005-06선덜랜드, 2007-08더비카운티 29패
+* 한 시즌 최저 패배 2003-04아스날 0패
+```python
+# 승점 확인 골 득실
+fig = px.scatter(epl_table, x="Season", y="GD", color="Team",hover_name="Team",size="Total_Points",template='plotly',
+                color_discrete_sequence=px.colors.cyclical.IceFire,
+                 labels ={'GD': 'Goal Difference'},
+                 title="시즌 별 승점 / 골 득실 확인")
+
+fig.update_xaxes(
+    showgrid=True,
+    ticks="outside",
+    tickson="boundaries",
+    ticklen=20,
+    type='category')
+fig.show()
+```
+* 한 시즌 최다 승점 2017-18맨시티 100점
+* 한 시즌 최저 승점 2007-08더비카운티 11점
+* 한 시즌 최다 골 득실 2017-18맨시티 79점
+* 한 시즌 최저 골 득실 2007-08더비카운티 -69점
+```python
+fig = px.scatter(epl_table, x="Season", y="GF", color="Team",hover_name="Team",size="GA",template='plotly',
+                color_discrete_sequence=px.colors.cyclical.IceFire,
+                 labels ={'GF': 'Goals Scored'},
+                 title="득점 실점 확인")
+
+fig.update_xaxes(
+    showgrid=True,
+    ticks="outside",
+    tickson="boundaries",
+    ticklen=20,
+    type='category')
+fig.show()
+```
+
+* 단일 시즌 최다 골 2017-18 맨시티 106골
+* 단일 시즌 최저 골 2007-08 더비카운티 20골
+* 단일 시즌 최다 실점 1993-94 스윈던 100골
+* 단일 시즌 최저 실점 2004-05 첼시 15골
+# 우승/강등 팀과 트렌드 분석
+```python
+ax = top.plot(kind='line',color="black",y='Total_Points',grid=True,figsize=(47,20),label='Total_Points',linestyle='-',marker='D',markevery=1,markersize=15, fillstyle='full',markerfacecolor='black')
+plt.axhline(y=top['Total_Points'].mean(),color='black',label='Average Points',linewidth=4)
+plt.yticks(np.arange(70,105,2),fontsize=20)
+plt.annotate('Avg Points',(-1,top['Total_Points'].mean() + 0.5),fontsize = 40,fontweight='bold')
+a=0
+for index,row in top.iterrows():
+    b=row.Total_Points
+    plt.annotate(row.Team,(a,b+.5),fontsize=20,fontweight='bold')
+    a=a+1
+plt.xlabel('Season',fontsize=50)
+plt.ylabel('Points',fontsize=50)
+plt.title('EPL 우승',fontsize=60)
+plt.legend(loc=2,fontsize=35)
+plt.xticks(top.index,rotation=60,fontsize=20)
+ax.set_xticklabels(top['Season'])
+plt.show()
+# 최저 승점 우승 1996-97 맨유
+# 최다 승점 우승 2017-18 맨시티 
+# 2021-22 시즌은 32R 까지의 데이터
+```
+```python
+# 강등권 팀
+rel = epl_table[(epl_table['Rank']==18) & (epl_table['Season'] != '1993-94') & (epl_table['Season'] != '1994-95')]
+rel.set_index('Season',drop=True,inplace=True)
+rel=rel.reset_index()   
+
+ax = rel.plot(kind='line',color='sandybrown',y='Total_Points',figsize=(48,20),label='Total_Points',linestyle='-',marker='D',markevery=1,markersize=10, fillstyle='full',markerfacecolor='sandybrown')
+plt.axhline(y=rel['Total_Points'].mean(),color='red',label='Average Points',linewidth=4)
+plt.yticks(np.arange(25,50,2),fontsize=20)
+plt.annotate('Avg Points',(-1,rel['Total_Points'].mean() + 0.5),fontsize = 40,fontweight='bold')
+a=0
+for index,row in rel.iterrows():
+    b=row.Total_Points
+    plt.annotate(row.Team,(a,b+.5),fontsize=20,fontweight='bold')
+    a=a+1
+plt.xlabel('Season',fontsize=50)
+plt.ylabel('Points',fontsize=50)
+plt.title('강등팀 들의 승점 ',fontsize=60)
+plt.legend(loc=2,fontsize=35)
+plt.xticks(rel.index,rotation=60,fontsize=20)
+ax.set_xticklabels(rel['Season'])
+plt.grid()
+```
+```python
+sns.pairplot(data=epl_table[['GF', 'GA', 'GD','Rank']], size=2.5, diag_kind='kde')
+# 득점, 실점, 골이 팀의 순위에 미치는 영향
+# GF : Goal For 득점
+# GA : Goal Against 실점
+# GD : Goal Difference 골 득실 차이
+# Rank가 낮아 질수록 우승권이기에 반대로 표현되어진다.
+```
+```
+리그에서는 골 득실, 실점, 득점, 팀 순위 간에 강한 상관 관계가 있다.
+득점이 많아지면 -> 순위 하락(1위 일수록 좋다.)
+실점이 많을수록 -> 순위 상승(20위 일수록 안좋다.)
+승리를 위해선 골을 많이 넣고
+적게 먹여야 한다.
+```
